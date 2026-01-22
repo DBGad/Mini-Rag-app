@@ -10,7 +10,7 @@ class ProjectDataModel(BaseDataModel):
     
     async def create_project(self,project:Project):
         res = await self.collection.insert_one(
-            project.dict(exclude_none=True, by_alias=True, exclude={'id'})  # ✅ استبعاد id
+            project.dict(by_alias=True, exclude_unset=True) 
         )
         project._id = res.inserted_id
         return project
