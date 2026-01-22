@@ -1,4 +1,4 @@
-from fastapi import APIRouter, UploadFile, Depends,status
+from fastapi import APIRouter, UploadFile, Depends,status,Request,File
 from fastapi.responses import JSONResponse
 import os 
 import sys
@@ -7,6 +7,7 @@ from controllers import DataController,ProjectController,ProcessController
 import aiofiles
 from models import ResponseSignal
 import logging
+from models.ProjectDataModel import ProjectDataModel
 
 from .schemes.Data import ProcessRequest
 
@@ -19,11 +20,16 @@ data_router = APIRouter(
 )
 
 @data_router.post('/upload/{project_id}')
-async def upload_data(
+async def upload_data(request:Request,
     project_id: str,
-    file: UploadFile,
+    file: UploadFile =File(...) ,
     app_settings: Settings = Depends(get_settings)
 ):
+    project_data_model = ProjectDataModel(request.app.db_client)
+    project = await project_data_model.get_project_or_create_one(
+        project_id=project_id
+    )
+
     data_obj =DataController()
     is_valid,signal = data_obj.validate_uploaded_file(file=file)
     
@@ -52,7 +58,7 @@ async def upload_data(
     return JSONResponse(
         content = {
             "signal": ResponseSignal.FILE_UPLOAD_SUCCESS.value,
-            "file_id" : file_id
+            "file_id" : file_id,
             }
     )
 
@@ -67,10 +73,14 @@ async def process_file(project_id:str,Process_Request:ProcessRequest):
     file_content = process_obj.get_file_content(file_id)
     file_chunks = process_obj.process_file_content(file_content=file_content,file_id=file_id,
                                                    chunk_size=chunk_size,overlap_size=overlap_size)
-
-    if file_chunks is None  or len(file_chunks) == 0:
+    chunks = [{
+            "metadata": chunk.metadata,
+            "page_content": chunk.page_content,
+            "type": chunk.type
+        } for chunk in file_chunks]
+    if chunks is None  or len(chunks) == 0:
         return JSONResponse(
             status_code = status.HTTP_400_BAD_REQUEST,
             content = {"signal" : ResponseSignal.PROCESSING_FAILED.value}
         )
-    return file_chunks
+    return chunks
