@@ -31,7 +31,7 @@ class ChunkDataModle (BaseDataModel):
 
     async def create_chunk (self,chunk:DataChunk):
         res = await self.collection.insert_one(chunk.dict(by_alias=True, exclude_unset=True))
-        chunk._id = res.inserted_id
+        chunk.id = res.inserted_id
         return chunk
     
     async def get_chunk(self,chunk_id:str):

@@ -30,7 +30,7 @@ class ProjectDataModel(BaseDataModel):
         res = await self.collection.insert_one(
             project.dict(by_alias=True, exclude_unset=True) 
         )
-        project._id = res.inserted_id
+        project.id = res.inserted_id
         return project
     
 
