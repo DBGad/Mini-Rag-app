@@ -13,3 +13,4 @@ cohere==5.20.2
 groq==1.0.0
 torch==2.10.0
 sentence-transformers==5.2.0
+qdrant-client==1.16.2
