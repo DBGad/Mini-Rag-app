@@ -7,3 +7,7 @@ class PushRequest(BaseModel):
 class SearchRequest(BaseModel):
     text: str
     limit: Optional[int] = 5
+
+class AnswerRequest(BaseModel):
+    question:str
+    limit:Optional[int] = 5

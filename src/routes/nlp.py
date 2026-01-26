@@ -1,6 +1,6 @@
 from fastapi import FastAPI, APIRouter, status, Request
 from fastapi.responses import JSONResponse
-from routes.schemes.nlp import PushRequest, SearchRequest
+from routes.schemes.nlp import PushRequest, SearchRequest,AnswerRequest
 from models.ProjectDataModel import ProjectDataModel
 from models.ChunkDataModel import ChunkDataModle
 from controllers import NLPController
@@ -128,6 +128,7 @@ async def search_index(request: Request, project_id: str, search_request: Search
         vectordb_client=request.app.vectordb_client,
         generation_client=request.app.generation_client,
         embedding_client=request.app.embedding_client,
+         template_parser = request.app.template_parser 
     )
 
     results = nlp_controller.search_vector_db_collection(
@@ -148,3 +149,40 @@ async def search_index(request: Request, project_id: str, search_request: Search
             "results": [ result.dict()  for result in results ]
         }
     )
+
+@nlp_router.post("/index/answer/{project_id}")
+async def asnwer(request: Request, project_id: str, answer_request: AnswerRequest):
+    logger.info(f"Received search request: {answer_request}")
+    logger.info(f"question: {answer_request.question}, Limit: {answer_request.limit}")
+    
+    project_model = await ProjectDataModel.create_instance(
+        db_client=request.app.db_client
+    )
+
+    project = await project_model.get_project_or_create_one(
+        project_id=project_id
+    )
+
+    nlp_controller = NLPController(
+        vectordb_client=request.app.vectordb_client,
+        generation_client=request.app.generation_client,
+        embedding_client=request.app.embedding_client,
+        template_parser = request.app.template_parser 
+    )
+
+    answer , full_prompt, chat_history = nlp_controller.answer_rag_question(project= project,
+                                                 query = answer_request.question,
+                                                   limit =answer_request.limit)
+    
+    return JSONResponse(
+        content={
+            "signal": ResponseSignal.RAG_ANSWER_SUCCESS.value,
+            "answer" :answer ,
+            "full_prompt" :full_prompt,
+            "chat_history" :chat_history
+
+        }
+    )
+
+    
+

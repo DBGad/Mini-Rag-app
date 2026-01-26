@@ -20,7 +20,7 @@ class GroqProvider(LLMInterface):
 
         self.embedding_model_id = None
         self.embedding_size = None
-
+        self.enums = GroqEnums
         self.client = Groq(
             api_key = self.api_key
         )
