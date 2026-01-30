@@ -2,6 +2,8 @@ from ..LLMInterface import LLMInterface
 from sentence_transformers import SentenceTransformer
 import logging
 
+from typing import List, Union
+
 class HuggingFaceProvider(LLMInterface):
 
     def __init__(self,api_key:str, default_input_max_characters: int=1000):
@@ -39,7 +41,7 @@ class HuggingFaceProvider(LLMInterface):
         self.logger.warning("HuggingFace provider does not support text generation in this implementation")
         return None
 
-    def embed_text(self, text: str, document_type: str = None):
+    def embed_text(self, text: Union[str, List[str]], document_type: str = None):
         
         if not self.embedding_model:
             self.logger.error("HuggingFace embedding model was not loaded")
@@ -50,9 +52,23 @@ class HuggingFaceProvider(LLMInterface):
             return None
         
         try:
-            processed_text = self.process_text(text)
-            embedding = self.embedding_model.encode(processed_text, convert_to_numpy=True)
-            return embedding.tolist()
+            # تحويل string لـ list
+            if isinstance(text, str):
+                text = [text]
+            
+            # معالجة كل text
+            processed_texts = [self.process_text(t) for t in text]
+            
+            # embedding batch
+            embeddings = self.embedding_model.encode(
+                processed_texts, 
+                convert_to_numpy=True,
+                show_progress_bar=False
+            )
+            
+            # تحويل لـ list of lists
+            return [emb.tolist() for emb in embeddings]
+            
         except Exception as e:
             self.logger.error(f"Error while embedding text with HuggingFace: {e}")
             return None

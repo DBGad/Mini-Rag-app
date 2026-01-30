@@ -14,6 +14,7 @@ from models.AssetDataModel import AssetDataModel
 from .schemes.Data import ProcessRequest
 from models.db_schemes import DataChunk,Asset
 from models.enums.AssetTypeEnum import AssetTypeEnum
+from controllers import NLPController
 
 logger = logging.getLogger('uvicorn.error')
 
@@ -23,61 +24,75 @@ data_router = APIRouter(
     tags=['api_v1', 'data']
 )
 
-@data_router.post('/upload/{project_id}')
-async def upload_data(request:Request,
-    project_id: int,
-    file: UploadFile =File(...) ,
-    app_settings: Settings = Depends(get_settings)
-):
-    project_data_model =await ProjectDataModel.create_instance(request.app.db_client)
-    project = await project_data_model.get_project_or_create_one(
+@data_router.post("/upload/{project_id}")
+async def upload_data(request: Request, project_id: int, file: UploadFile,
+                      app_settings: Settings = Depends(get_settings)):
+        
+    
+    project_model = await ProjectDataModel.create_instance(
+        db_client=request.app.db_client
+    )
+
+    project = await project_model.get_project_or_create_one(
         project_id=project_id
     )
 
-    data_obj =DataController()
-    is_valid,signal = data_obj.validate_uploaded_file(file=file)
-    
+    # validate the file properties
+    data_controller = DataController()
+
+    is_valid, result_signal = data_controller.validate_uploaded_file(file=file)
+
     if not is_valid:
         return JSONResponse(
-            status_code = status.HTTP_400_BAD_REQUEST,
-            content = {
-                "signal" : signal
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "signal": result_signal
             }
         )
-    project_dir_path = ProjectController().get_project_path(project_id)
-    file_path,file_id = data_obj.generate_unique_filepath(file.filename,project_id)
-    try:    
-        async with aiofiles.open(file_path,'wb') as f:
+
+    project_dir_path = ProjectController().get_project_path(project_id=project_id)
+    file_path, file_id = data_controller.generate_unique_filepath(
+        org_filename=file.filename,
+        project_id=project_id
+    )
+
+    try:
+        async with aiofiles.open(file_path, "wb") as f:
             while chunk := await file.read(app_settings.FILE_DEFAULT_CHUNK_SIZE):
                 await f.write(chunk)
     except Exception as e:
+
         logger.error(f"Error while uploading file: {e}")
+
         return JSONResponse(
-            status_code = status.HTTP_400_BAD_REQUEST,
-            content = {
-                "signal" : ResponseSignal.FILE_UPLOAD_FAILED.value
+            status_code=status.HTTP_400_BAD_REQUEST,
+            content={
+                "signal": ResponseSignal.FILE_UPLOAD_FAILED.value
             }
         )
-    # store Assets into database
-    asset_model = await AssetDataModel.create_instance(db_client=request.app.db_client)
+
+    # store the assets into the database
+    asset_model = await AssetDataModel.create_instance(
+        db_client=request.app.db_client
+    )
 
     asset_resource = Asset(
-        asset_project_id= project.project_id,
+        asset_project_id=project.project_id,
         asset_type=AssetTypeEnum.FILE.value,
         asset_name=file_id,
         asset_size=os.path.getsize(file_path)
     )
-    
+
     asset_record = await asset_model.create_asset(asset=asset_resource)
 
     return JSONResponse(
-        content = {
-            "signal": ResponseSignal.FILE_UPLOAD_SUCCESS.value,
-            "file_id" : str(asset_record.asset_id)
+            content={
+                "signal": ResponseSignal.FILE_UPLOAD_SUCCESS.value,
+                "file_id": str(asset_record.asset_id),
             }
-    )
+        )
 
-@data_router.post('/process/{project_id}')
+@data_router.post("/process/{project_id}")
 async def process_endpoint(request: Request, project_id: int, process_request: ProcessRequest):
 
     chunk_size = process_request.chunk_size
@@ -90,6 +105,13 @@ async def process_endpoint(request: Request, project_id: int, process_request: P
 
     project = await project_model.get_project_or_create_one(
         project_id=project_id
+    )
+
+    nlp_controller = NLPController(
+        vectordb_client=request.app.vectordb_client,
+        generation_client=request.app.generation_client,
+        embedding_client=request.app.embedding_client,
+        template_parser=request.app.template_parser,
     )
 
     asset_model = await AssetDataModel.create_instance(
@@ -124,7 +146,7 @@ async def process_endpoint(request: Request, project_id: int, process_request: P
         )
 
         project_files_ids = {
-            record.asset_project_id: record.asset_name
+            record.asset_id: record.asset_name
             for record in project_files
         }
 
@@ -146,6 +168,11 @@ async def process_endpoint(request: Request, project_id: int, process_request: P
                     )
 
     if do_reset == 1:
+        # delete associated vectors collection
+        collection_name = nlp_controller.create_collection_name(project_id=project.project_id)
+        _ = await request.app.vectordb_client.delete_collection(collection_name=collection_name)
+
+        # delete associated chunks
         _ = await chunk_model.delete_chunks_by_project_id(
             project_id=project.project_id
         )
